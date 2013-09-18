@@ -4,11 +4,14 @@ from fnmatch import fnmatch
 from HTMLParser import HTMLParser
 from lxml import etree
 from os import listdir
+from os import path
 from paste.script import command
 import json
 import logging
 import re
 import simplejson as json
+import sys
+import traceback
 
 class ECCommand(CkanCommand):
     """
@@ -62,7 +65,7 @@ class ECCommand(CkanCommand):
             'asNeeded'    : "As Needed | Au besoin",
             'continual'   : "Continual | Continue",
             'daily'       : "Daily | Quotidien",
-            'weekly'      :"Weekly | Hebdomadaire",
+            'weekly'      : "Weekly | Hebdomadaire",
             'fortnightly' : "Fortnightly | Quinzomadaire",
             'monthly'     : "Monthly | Mensuel",
             'semimonthly' : "Semimonthly | Bimensuel",
@@ -75,13 +78,19 @@ class ECCommand(CkanCommand):
         
         self.reasons = ""
         
+        self.output_file = sys.stdout
+        self.display_formatted = True
+        # Default output is JSON lines (one JSON record per line) but human-readable formatting is an option
+        if self.options.jl_file:
+            self.output_file = open(path.normpath(self.options.jl_file), 'wt')
+            self.display_formatted = False
 
         # Topic categories
         self.topic_choices = dict((c['eng'], c)
             for c in schema_description.dataset_field_by_id['topic_category']['choices'] if 'eng' in c)
             
         if cmd == 'print_one':
-            print json.dumps(self._to_od_dataset(self.options.source), indent = 2 * ' ')
+            print  >>  self.output_file, json.dumps(self._to_od_dataset(self.options.source), indent = 2 * ' ')
             
         elif cmd == 'import_dir':
             if self.options.dir:
@@ -93,7 +102,11 @@ class ECCommand(CkanCommand):
                 else:
                     for source_file in files:
                         print "Importing File: %s" % source_file
-                        print json.dumps(self._to_od_dataset(source_file), indent = 2 * ' ')
+                        if self.display_formatted:
+                            print  >>  self.output_file,  (json.dumps(self._to_od_dataset(path.join(self.options.dir, source_file)), indent = 2 * ' '))
+                        else:
+                            print  >>  self.output_file,  (json.dumps(self._to_od_dataset(path.join(self.options.dir, source_file)), encoding="utf-8"))
+                            
                 print ""
             else:
                 print "Missing arguement"
@@ -121,7 +134,7 @@ class ECCommand(CkanCommand):
             odproduct['attribution_fra'] = u"Contient des informations autoris\u00e9es sous la Licence du gouvernement ouvert- Canada"
             odproduct['ready_to_publish'] = True
             odproduct['portal_release_date'] = ""
-            odproduct['presentation_form'] = "documentDigital"
+            odproduct['presentation_form'] = u"Document Digital | Document num\u00e9rique"
             odproduct['spatial_representation_type'] = "Vector | Vecteur"
 
             odproduct['id'] = self._get_first_text('/gmd:MD_Metadata/gmd:fileIdentifier/gco:CharacterString')
@@ -143,11 +156,21 @@ class ECCommand(CkanCommand):
             
             odproduct['time_period_coverage_start'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:extent/gmd:EX_Extent/gmd:temporalElement/gmd:EX_TemporalExtent/gmd:extent/gml:TimePeriod/gml:beginPosition')
             
-            odproduct['time_period_coverage_end'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:extent/gmd:EX_Extent/gmd:temporalElement/gmd:EX_TemporalExtent/gmd:extent/gml:TimePeriod/gml:endPosition')
+            coverage_end_time = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:extent/gmd:EX_Extent/gmd:temporalElement/gmd:EX_TemporalExtent/gmd:extent/gml:TimePeriod/gml:endPosition').strip()
+            if (coverage_end_time == u"Ongoing") or (len(coverage_end_time) == 0):
+                coverage_end_time = '2099-12-31'
+            odproduct['time_period_coverage_end'] = coverage_end_time
             
-            urls_en = self._get_urls_from_string(self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:supplementalInformation/gco:CharacterString'))
+            sup_text = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:supplementalInformation/gco:CharacterString')
+            urls_en = []
+            if len(sup_text) > 0: 
+                urls_en = self._get_urls_from_string(sup_text)
 
-            urls_fr = self._get_urls_from_string(self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:supplementalInformation/gmd:PT_FreeText/gmd:textGroup/gmd:LocalisedCharacterString'))
+            sup_text = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:supplementalInformation/gmd:PT_FreeText/gmd:textGroup/gmd:LocalisedCharacterString')
+            urls_fr = []
+            if len(sup_text) > 0:
+                urls_fr = self._get_urls_from_string(sup_text)
+                
             if len(urls_en) > 0:
                 odproduct['url'] = urls_en[0]
             if len(urls_fr) > 0:
@@ -183,7 +206,7 @@ class ECCommand(CkanCommand):
 
             southLat = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:extent/gmd:EX_Extent/gmd:geographicElement/gmd:EX_GeographicBoundingBox/gmd:southBoundLatitude/gco:Decimal')
 
-            odproduct['geographic_region'] = self._get_spatial(westLong, eastLong, northLat, southLat)
+            odproduct['spatial'] = self._get_spatial(westLong, eastLong, northLat, southLat)
 
             odproduct['date_published'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:citation/gmd:CI_Citation/gmd:date/gmd:CI_Date/gmd:date/gco:Date')
 
@@ -196,11 +219,6 @@ class ECCommand(CkanCommand):
             odproduct['maintenance_and_update_frequency'] = self._get_update_frequency(
                 self.root.xpath('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:resourceMaintenance/gmd:MD_MaintenanceInformation/gmd:maintenanceAndUpdateFrequency/gmd:MD_MaintenanceFrequencyCode/@codeListValue',
                            namespaces=self.nap_namespaces)[0])
-
-            odproduct['time_period_coverage_start'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:extent/gmd:EX_Extent/gmd:temporalElement/gmd:EX_TemporalExtent/gmd:extent/gml:TimePeriod/gml:beginPosition')
-
-            odproduct['time_period_coverage_end'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:extent/gmd:EX_Extent/gmd:temporalElement/gmd:EX_TemporalExtent/gmd:extent/gml:TimePeriod/gml:endPosition')
-
             
             # These fields are not present in the EC ISO 19115 NAP files.
             
@@ -217,42 +235,60 @@ class ECCommand(CkanCommand):
             od_resources = []
             for resource in resources:
                 od_resource = {}
-                od_resource['name'] = resource.xpath('gmd:CI_OnlineResource/gmd:name/gco:CharacterString', 
-                                                     namespaces=self.nap_namespaces)[0].text
+                lang_code = resource.xpath('@xlink:role', namespaces=self.nap_namespaces)[0]
+                if lang_code == "urn:xml:lang:eng-CAN":
+                    od_resource['language'] = 'eng; CAN'
+                elif lang_code == "urn:xml:lang:fra-CAN":
+                    od_resource['language'] = 'fra; CAN'
+                else:
+                    od_resource['language'] = 'zxx; CAN'
+                if len(resource.xpath('gmd:CI_OnlineResource/gmd:name/gco:CharacterString', 
+                                                     namespaces=self.nap_namespaces)) > 0:
+                    od_resource['name'] = resource.xpath('gmd:CI_OnlineResource/gmd:name/gco:CharacterString', 
+                                                         namespaces=self.nap_namespaces)[0].text
+                else:
+                    if lang_code == "urn:xml:lang:eng-CAN":
+                        od_resource['name'] = "Dataset"
+                    else:
+                        od_resource['name'] = "Donn\u00e9s"
                 od_resource['name_fra'] = od_resource['name']
                 od_resource['resource_type'] = "file"
                 od_resource['url'] = resource.xpath('gmd:CI_OnlineResource/gmd:linkage/gmd:URL', namespaces=self.nap_namespaces)[0].text
                 od_resource['size'] = ''
                 od_resource['format'] = self._guess_resource_type(od_resource['name'])
-                lang_code = resource.xpath('@xlink:role', namespaces=self.nap_namespaces)[0]
-                if lang_code == "urn:xml:lang:eng-CAN":
-                    od_resource['language'] = '"eng; CAN": English'
-                elif lang_code == "urn:xml:lang:fra-CAN":
-                    od_resource['language'] = 'fra; CAN": French'
-                else:
-                    od_resource['language'] = '"zxx; CAN" : none'
+
                 
                 od_resources.append(od_resource)
             odproduct['resources'] = od_resources
 
+
         except Exception as e:
             print("Failure: ", e)
+            traceback.print_exc()
                 
         return odproduct
 
     def _get_first_text(self, xpath_query):
         try:
-            return self.root.xpath(xpath_query, namespaces=self.nap_namespaces)[0].text
+            text_value = ""
+            tag_list = self.root.xpath(xpath_query, namespaces=self.nap_namespaces)
+            if len(tag_list) == 0:
+                return text_value
+            first_tag = tag_list[0]
+            if first_tag.text:
+                text_value = first_tag.text
+            return text_value
         except Exception as e:
             print ("Error ", e, xpath_query)
             raise
         
     def _get_urls_from_string(self, text_with_urls):
-        urls = re.findall('http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', text_with_urls)
         unescaped_urls = []
-        html_parser =  HTMLParser()
-        for url in urls:
-            unescaped_urls.append(html_parser.unescape(url))
+        if len(text_with_urls) > 0:        
+            urls = re.findall('http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', text_with_urls)
+            html_parser =  HTMLParser()
+            for url in urls:
+                unescaped_urls.append(html_parser.unescape(url))
         return unescaped_urls
 
     def _get_spatial(self, west, east, north, south):
@@ -279,10 +315,14 @@ class ECCommand(CkanCommand):
         # Subjects are mapped to the topics in the schema, so both are looked up from the topic keys
         for topic in topic_categories:
             topic_key = re.sub("([a-z])([A-Z])","\g<1> \g<2>", topic).title()
+            if not topic_key in self.topic_choices.keys():
+                continue
             topics.append(self.topic_choices[topic_key]['key'])
             topic_subject_keys = self.topic_choices[topic_key]['subject_ids']
             for topic_subject_key in topic_subject_keys:
-                subjects.append(schema_description.dataset_field_by_id['subject']['choices_by_id'][topic_subject_key]['key'])
+                if schema_description.dataset_field_by_id['subject']['choices_by_id'][topic_subject_key]:
+                    subjects.append(schema_description.dataset_field_by_id['subject']['choices_by_id'][topic_subject_key]['key'])
+
 
         return { 'topics' : topics, 'subjects' : subjects}
             
