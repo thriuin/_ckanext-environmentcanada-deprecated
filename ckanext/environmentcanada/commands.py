@@ -150,14 +150,14 @@ class ECCommand(CkanCommand):
                 valid = False
 
 
-            odproduct['notes'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:abstract/gco:CharacterString')
+            odproduct['notes'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:abstract/gco:CharacterString').replace(u"\u2019", "'")
 
-            odproduct['notes_fra'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:citation/gmd:CI_Citation/gmd:title/gmd:PT_FreeText/gmd:textGroup/gmd:LocalisedCharacterString')
+            odproduct['notes_fra'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:citation/gmd:CI_Citation/gmd:title/gmd:PT_FreeText/gmd:textGroup/gmd:LocalisedCharacterString').replace(u"\u2019", "'")
             
             odproduct['time_period_coverage_start'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:extent/gmd:EX_Extent/gmd:temporalElement/gmd:EX_TemporalExtent/gmd:extent/gml:TimePeriod/gml:beginPosition')
             
             coverage_end_time = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:extent/gmd:EX_Extent/gmd:temporalElement/gmd:EX_TemporalExtent/gmd:extent/gml:TimePeriod/gml:endPosition').strip()
-            if (coverage_end_time == u"Ongoing") or (len(coverage_end_time) == 0):
+            if (coverage_end_time.lower() == u"ongoing") or (len(coverage_end_time) == 0):
                 coverage_end_time = '2099-12-31'
             odproduct['time_period_coverage_end'] = coverage_end_time
             
@@ -197,6 +197,7 @@ class ECCommand(CkanCommand):
             odproduct['keywords'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:descriptiveKeywords/gmd:MD_Keywords/gmd:keyword/gco:CharacterString')
 
             odproduct['keywords_fra'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:descriptiveKeywords/gmd:MD_Keywords/gmd:keyword/gmd:PT_FreeText/gmd:textGroup/gmd:LocalisedCharacterString')
+            odproduct['keywords_fra'] = odproduct['keywords_fra'].replace(u"/u2019", "'")
                                      
             westLong = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:extent/gmd:EX_Extent/gmd:geographicElement/gmd:EX_GeographicBoundingBox/gmd:westBoundLongitude/gco:Decimal')
 
@@ -212,7 +213,8 @@ class ECCommand(CkanCommand):
 
             try:
                 odproduct['browse_graphic_url'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:graphicOverview/gmd:MD_BrowseGraphic/gmd:fileName/gco:CharacterString')
-
+                if len(odproduct['browse_graphic_url']) == 0:
+                    odproduct['browse_graphic_url'] = '/static/img/canada_default.png'
             except:
                 odproduct['browse_graphic_url'] = '/static/img/canada_default.png'
                 
@@ -276,7 +278,7 @@ class ECCommand(CkanCommand):
                 return text_value
             first_tag = tag_list[0]
             if first_tag.text:
-                text_value = first_tag.text
+                text_value = first_tag.text.replace(u"\u2019", "'")
             return text_value
         except Exception as e:
             print ("Error ", e, xpath_query)
@@ -314,7 +316,13 @@ class ECCommand(CkanCommand):
         
         # Subjects are mapped to the topics in the schema, so both are looked up from the topic keys
         for topic in topic_categories:
-            topic_key = re.sub("([a-z])([A-Z])","\g<1> \g<2>", topic).title()
+            # This seems to be a common pattern - deal with it
+            if topic == 'Climatologymeteorologyatmosphere':
+                topic_key = 'Climatology / Meteorology / Atmosphere'
+            elif topic == 'Geoscientificinformation':
+                topic_key = 'Geoscientific Information'
+            else:
+                topic_key = re.sub("([a-z])([A-Z])","\g<1> \g<2>", topic).title()
             if not topic_key in self.topic_choices.keys():
                 continue
             topics.append(self.topic_choices[topic_key]['key'])
@@ -322,7 +330,6 @@ class ECCommand(CkanCommand):
             for topic_subject_key in topic_subject_keys:
                 if schema_description.dataset_field_by_id['subject']['choices_by_id'][topic_subject_key]:
                     subjects.append(schema_description.dataset_field_by_id['subject']['choices_by_id'][topic_subject_key]['key'])
-
 
         return { 'topics' : topics, 'subjects' : subjects}
             
