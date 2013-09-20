@@ -152,14 +152,13 @@ class ECCommand(CkanCommand):
 
             odproduct['notes'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:abstract/gco:CharacterString').replace(u"\u2019", "'")
 
-            odproduct['notes_fra'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:citation/gmd:CI_Citation/gmd:title/gmd:PT_FreeText/gmd:textGroup/gmd:LocalisedCharacterString').replace(u"\u2019", "'")
+            odproduct['notes_fra'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:abstract/gmd:PT_FreeText/gmd:textGroup/gmd:LocalisedCharacterString').replace(u"\u2019", "'")
             
             odproduct['time_period_coverage_start'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:extent/gmd:EX_Extent/gmd:temporalElement/gmd:EX_TemporalExtent/gmd:extent/gml:TimePeriod/gml:beginPosition')
             
             coverage_end_time = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:extent/gmd:EX_Extent/gmd:temporalElement/gmd:EX_TemporalExtent/gmd:extent/gml:TimePeriod/gml:endPosition').strip()
-            if (coverage_end_time.lower() == u"ongoing") or (len(coverage_end_time) == 0):
-                coverage_end_time = '2099-12-31'
-            odproduct['time_period_coverage_end'] = coverage_end_time
+            if (coverage_end_time.lower() <> u"ongoing") and (len(coverage_end_time) == 0):
+                odproduct['time_period_coverage_end'] = coverage_end_time
             
             sup_text = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:supplementalInformation/gco:CharacterString')
             urls_en = []
@@ -252,7 +251,7 @@ class ECCommand(CkanCommand):
                     if lang_code == "urn:xml:lang:eng-CAN":
                         od_resource['name'] = "Dataset"
                     else:
-                        od_resource['name'] = "Donn\u00e9s"
+                        od_resource['name'] = u"Donn\u00e9es"
                 od_resource['name_fra'] = od_resource['name']
                 od_resource['resource_type'] = "file"
                 od_resource['url'] = resource.xpath('gmd:CI_OnlineResource/gmd:linkage/gmd:URL', namespaces=self.nap_namespaces)[0].text
