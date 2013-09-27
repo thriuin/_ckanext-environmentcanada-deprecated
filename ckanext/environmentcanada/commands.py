@@ -91,7 +91,8 @@ class ECCommand(CkanCommand):
             
         if cmd == 'print_one':
             print  >>  self.output_file, json.dumps(self._to_od_dataset(self.options.source), indent = 2 * ' ')
-            
+      
+        # Import all the files from a directory with the provided file extension, and print them to the JSON output file.
         elif cmd == 'import_dir':
             if self.options.dir:
                 files = [name for name in listdir(self.options.dir)
@@ -137,18 +138,19 @@ class ECCommand(CkanCommand):
             odproduct['presentation_form'] = u"Document Digital | Document num\u00e9rique"
             odproduct['spatial_representation_type'] = "Vector | Vecteur"
 
+            # Read in NAP fields and populate the OD dataset
+
             odproduct['id'] = self._get_first_text('/gmd:MD_Metadata/gmd:fileIdentifier/gco:CharacterString')
+            
             odproduct['title'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:citation/gmd:CI_Citation/gmd:title/gco:CharacterString')
             if len(odproduct['title']) == 0:
                 self.reasons = '%s No English Title Given;' % self.reasons
                 valid = False
                 
             odproduct['title_fra'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:citation/gmd:CI_Citation/gmd:title/gmd:PT_FreeText/gmd:textGroup/gmd:LocalisedCharacterString')
-            
             if len(odproduct['title_fra']) == 0:
                 self.reasons = '%s No French Title Given;' % self.reasons
                 valid = False
-
 
             odproduct['notes'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:abstract/gco:CharacterString').replace(u"\u2019", "'")
 
@@ -156,6 +158,7 @@ class ECCommand(CkanCommand):
             
             odproduct['time_period_coverage_start'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:extent/gmd:EX_Extent/gmd:temporalElement/gmd:EX_TemporalExtent/gmd:extent/gml:TimePeriod/gml:beginPosition')
             
+            # The time period coverage end time is not always present - it's not mandatory
             coverage_end_time = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:extent/gmd:EX_Extent/gmd:temporalElement/gmd:EX_TemporalExtent/gmd:extent/gml:TimePeriod/gml:endPosition').strip()
             if (coverage_end_time.lower() <> u"ongoing") and (len(coverage_end_time) == 0):
                 odproduct['time_period_coverage_end'] = coverage_end_time
@@ -206,7 +209,9 @@ class ECCommand(CkanCommand):
 
             southLat = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:extent/gmd:EX_Extent/gmd:geographicElement/gmd:EX_GeographicBoundingBox/gmd:southBoundLatitude/gco:Decimal')
 
-            odproduct['spatial'] = self._get_spatial(westLong, eastLong, northLat, southLat)
+            # convert these 4 points into a bounding box
+            odproduct['spatial'] = '{\"type\": \"Polygon\", \"coordinates\": [[[%s, %s], [%s, %s], [%s, %s], [%s, %s], [%s, %s]]]}' % (
+                                   westLong,northLat,eastLong,northLat,eastLong,southLat,westLong,southLat,westLong,northLat)
 
             odproduct['date_published'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:citation/gmd:CI_Citation/gmd:date/gmd:CI_Date/gmd:date/gco:Date')
 
@@ -258,7 +263,6 @@ class ECCommand(CkanCommand):
                 od_resource['size'] = ''
                 od_resource['format'] = self._guess_resource_type(od_resource['name'])
 
-                
                 od_resources.append(od_resource)
             odproduct['resources'] = od_resources
 
@@ -269,6 +273,9 @@ class ECCommand(CkanCommand):
                 
         return odproduct
 
+    '''
+    When there is only one tag with one text field, retrieve the first tag and replace right apostrophes 
+    '''
     def _get_first_text(self, xpath_query):
         try:
             text_value = ""
@@ -282,7 +289,10 @@ class ECCommand(CkanCommand):
         except Exception as e:
             print ("Error ", e, xpath_query)
             raise
-        
+    
+    '''
+    Return a list of URLs that are embedded with a long text string.
+    '''
     def _get_urls_from_string(self, text_with_urls):
         unescaped_urls = []
         if len(text_with_urls) > 0:        
@@ -291,11 +301,6 @@ class ECCommand(CkanCommand):
             for url in urls:
                 unescaped_urls.append(html_parser.unescape(url))
         return unescaped_urls
-
-    def _get_spatial(self, west, east, north, south):
-        return '{\"type\": \"Polygon\", \"coordinates\": [[[%s, %s], [%s, %s], [%s, %s], [%s, %s], [%s, %s]]]}' % (
-            west,north,east,north,east,south,west,south,west,north)
-    
     
     '''
     The Open Data schema uses the Government of Canada (GoC) thesaurus to enumerate valid topics and subjects.
@@ -331,13 +336,19 @@ class ECCommand(CkanCommand):
                     subjects.append(schema_description.dataset_field_by_id['subject']['choices_by_id'][topic_subject_key]['key'])
 
         return { 'topics' : topics, 'subjects' : subjects}
-            
+    
+    '''
+    Map the EC update frequency key to the Open Data value, or return 'unknown' 
+    '''
     def _get_update_frequency(self, rawFrequency):
         if self.ds_update_freq_map[rawFrequency]:
             return self.ds_update_freq_map[rawFrequency]
         else:
             return self.ds_update_freq_map['unknown']
         
+    '''
+    Try to determine the file type of the resource from the file name
+    '''
     def _guess_resource_type(self, title):
         if len(re.findall('csv', title, flags=re.IGNORECASE)) > 0:
             return "CSV"
@@ -345,46 +356,5 @@ class ECCommand(CkanCommand):
             return "HTML"
         else:
             return "other"
-#         
-#         # Load the resources
-#         
-#         try:
-#             i = 0
-#             ckan_resources = []
-#             for resourcefile in geoproduct_en['files']:
-#                 ckan_resource = {}
-#                 ckan_resource['name'] = resourcefile['description']
-#                 ckan_resource['name_fra'] =geoproduct_fr['files'][i]['description']
-#                 ckan_resource['resource_type'] = 'file'
-#                 ckan_resource['url'] = resourcefile['link']
-#                 ckan_resource['size'] = self._to_byte_string(resourcefile['size'])
-#                 ckan_resource['format'] = self._to_format_type(resourcefile['type'])
-#                 ckan_resource['language'] = 'eng; CAN | fra; CAN'
-#                 ckan_resources.append(ckan_resource)
-#                 i += 1
-#         except:
-#             valid = False
-#             self.reasons = '%s No resources;' % self.reasons
-# 
-#         odproduct['resources'] = ckan_resources
-#      
-#         # Keep a report of the results
-        if self.options.report_file:
-            self.report.writerow({'ID' : odproduct['id'], 
-                            'Pass or Fail' : valid, 
-                            'Title (EN)' : odproduct['title'].encode('utf-8'), 
-                            'Title (FR)' : odproduct['title_fra'].encode('utf-8'), 
-                            'Summary (EN)' : 'Y' if odproduct['notes'] <> 'No title provided' else 'N', 
-                            'Summary (FR)' : 'Y' if odproduct['notes_fra'] <> 'Pas de titre pr\u00e9vu' else 'N', 
-                            'Topic Categories' : 'Y' if len(odproduct['topic_category']) > 0 else 'N', 
-                            'Keywords' : 'Y' if len(odproduct['topic_category']) > 0 else 'N', 
-                            'Published Date' : 'Y' if odproduct['date_published'] <> '' else 'N', 
-                            'Browse Images' : 'Y' if odproduct['browse_graphic_url'] <> "/static/img/canada_default.png" else 'N',
-                            'Series (EN)' : 'Y' if odproduct['data_series_name'] <> '' else 'N', 
-                            'Series (FR)' : 'Y' if odproduct['data_series_name_fra'] <> '' else 'N', 
-                            'Series Issue (EN)' : 'Y' if odproduct['data_series_issue_identification'] <> '' else 'N', 
-                            'Series Issue (FR)' : 'Y' if odproduct['data_series_issue_identification_fra'] <> '' else 'N',
-                            'Reason for Failure' : self.reasons})
-        if not valid:
-            odproduct = None
-        return odproduct
+
+      
