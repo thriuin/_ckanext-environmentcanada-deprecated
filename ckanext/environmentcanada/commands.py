@@ -102,10 +102,14 @@ class ECCommand(CkanCommand):
                 else:
                     for source_file in files:
                         print "Importing File: %s" % source_file
-                        if self.display_formatted:
-                            print  >>  self.output_file,  (json.dumps(self._to_od_dataset(path.join(self.options.dir, source_file)), indent = 2 * ' '))
+                        json_line = self._to_od_dataset(path.join(self.options.dir, source_file))
+                        if json_line != None:
+                            if self.display_formatted:
+                                print  >>  self.output_file,  (json.dumps(json_line, indent = 2 * ' '))
+                            else:
+                                print  >>  self.output_file,  (json.dumps(json_line, encoding="utf-8"))
                         else:
-                            print  >>  self.output_file,  (json.dumps(self._to_od_dataset(path.join(self.options.dir, source_file)), encoding="utf-8"))
+                            print self.reasons
 
                 print ""
             else:
@@ -117,6 +121,7 @@ class ECCommand(CkanCommand):
 
         odproduct = {}
         valid = True
+        self.reasons = ""
 
         try:
 
@@ -198,9 +203,15 @@ class ECCommand(CkanCommand):
                 self.reasons = '%s No GC Topics;' % self.reasons
 
             odproduct['keywords'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:descriptiveKeywords/gmd:MD_Keywords/gmd:keyword/gco:CharacterString')
+            if len(odproduct['keywords']) == 0:
+                valid = False
+                self.reasons = '%s No English Keywords;' % self.reasons
 
             odproduct['keywords_fra'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:descriptiveKeywords/gmd:MD_Keywords/gmd:keyword/gmd:PT_FreeText/gmd:textGroup/gmd:LocalisedCharacterString')
             odproduct['keywords_fra'] = odproduct['keywords_fra'].replace(u"/u2019", "'")
+            if len(odproduct['keywords_fra']) == 0:
+                valid = False
+                self.reasons = '%s No French Keywords;' % self.reasons
 
             westLong = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:extent/gmd:EX_Extent/gmd:geographicElement/gmd:EX_GeographicBoundingBox/gmd:westBoundLongitude/gco:Decimal')
 
@@ -272,7 +283,10 @@ class ECCommand(CkanCommand):
             print("Failure: ", e)
             traceback.print_exc()
 
-        return odproduct
+        if valid:
+            return odproduct
+        else:
+            return None
 
     '''
     When there is only one tag with one text field, retrieve the first tag and replace right apostrophes
@@ -319,7 +333,8 @@ class ECCommand(CkanCommand):
 
         topic_categories = []
         for geocat in geocategories:
-            topic_categories.append(geocat.text.title())
+            if not geocat.text is None:
+                topic_categories.append(geocat.text.title())
 
         # Subjects are mapped to the topics in the schema, so both are looked up from the topic keys
         for topic in topic_categories:
@@ -344,6 +359,8 @@ class ECCommand(CkanCommand):
     Map the EC update frequency key to the Open Data value, or return 'unknown'
     '''
     def _get_update_frequency(self, rawFrequency):
+        if rawFrequency == "":
+            return self.ds_update_freq_map['unknown']
         if self.ds_update_freq_map[rawFrequency]:
             return self.ds_update_freq_map[rawFrequency]
         else:
