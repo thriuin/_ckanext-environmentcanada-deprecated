@@ -24,9 +24,15 @@ class ECCommand(CkanCommand):
     Arguments:
         <file-name>   is the name of a text file to write out the updated records in JSON Lines format
         <report_file> is the name of a text to write out a import records report in .csv format
+        <source-file> is the file path to a single EC NAP file to parser
+        <file-ext>    is a file extension to use, normally this is 'xml'.
 
     Options:
         -h Display help message
+        -c/--config <configuration file>    Paster configuration file
+        -d/--dir <directory>                A directory that contains NAP files
+        -e/--file-ext <file-ext>            NAP file extension to look for, normally this is 'xml'.
+        -s/--source_file <source-file>      Single EC Nap File
 
     """
     summary = __doc__.split('\n')[0]
@@ -79,6 +85,7 @@ class ECCommand(CkanCommand):
 
         self.output_file = sys.stdout
         self.display_formatted = True
+
         # Default output is JSON lines (one JSON record per line) but human-readable formatting is an option
         if self.options.jl_file:
             self.output_file = open(path.normpath(self.options.jl_file), 'wt')
@@ -118,7 +125,10 @@ class ECCommand(CkanCommand):
                 return
 
     def _to_od_dataset(self, source_file):
-
+        '''
+        Convert a NAP file into an Open Data record
+        '''
+        
         odproduct = {}
         valid = True
         self.reasons = ""
@@ -144,7 +154,11 @@ class ECCommand(CkanCommand):
 
             # Read in NAP fields and populate the OD dataset
 
+            # UUID identifier
+
             odproduct['id'] = self._get_first_text('/gmd:MD_Metadata/gmd:fileIdentifier/gco:CharacterString')
+
+            # Title - English and French
 
             odproduct['title'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:citation/gmd:CI_Citation/gmd:title/gco:CharacterString')
             if len(odproduct['title']) == 0:
@@ -156,18 +170,28 @@ class ECCommand(CkanCommand):
                 self.reasons = '%s No French Title Given;' % self.reasons
                 valid = False
 
+            # Description - English and French
+
             odproduct['notes'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:abstract/gco:CharacterString').replace(u"\u2019", "'")
 
             odproduct['notes_fra'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:abstract/gmd:PT_FreeText/gmd:textGroup/gmd:LocalisedCharacterString').replace(u"\u2019", "'")
 
+            # Time Period Coverage - Start and End (optional)
+
             coverage_start_time = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:extent/gmd:EX_Extent/gmd:temporalElement/gmd:EX_TemporalExtent/gmd:extent/gml:TimePeriod/gml:beginPosition')
             if not coverage_start_time is None:
-              odproduct['time_period_coverage_start'] = coverage_start_time
+                if len(coverage_start_time) == 4:
+                    coverage_start_time = "%s-01-01" % coverage_start_time
+                odproduct['time_period_coverage_start'] = coverage_start_time
 
-            # The time period coverage end time is not always present - it's not mandatory
             coverage_end_time = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:extent/gmd:EX_Extent/gmd:temporalElement/gmd:EX_TemporalExtent/gmd:extent/gml:TimePeriod/gml:endPosition').strip()
+            # The time period coverage end time is not always present - it's not mandatory
             if (coverage_end_time.lower() <> u"ongoing") and (not len(coverage_end_time) == 0):
+                if len(coverage_end_time) == 4:
+                    coverage_end_time = "%s-12-31" % coverage_end_time
                 odproduct['time_period_coverage_end'] = coverage_end_time
+
+            # Homepage and Endpoint URLs - English and French
 
             sup_text = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:supplementalInformation/gco:CharacterString')
             urls_en = []
@@ -189,6 +213,8 @@ class ECCommand(CkanCommand):
             if len(urls_fr) > 1:
                 odproduct['endpoint_url_fra'] = urls_fr[1]
 
+            # GoC Subject
+
             topics_subjects = self._get_gc_subject_category(self.root.xpath('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:topicCategory/gmd:MD_TopicCategoryCode',
                                                                             namespaces=self.nap_namespaces))
 
@@ -197,10 +223,14 @@ class ECCommand(CkanCommand):
                 valid = False
                 self.reasons = '%s No GC Subjects;' % self.reasons
 
+            # GoC Topic
+
             odproduct['topic_category'] = topics_subjects['topics']
             if len(odproduct['topic_category']) == 0:
                 valid = False
                 self.reasons = '%s No GC Topics;' % self.reasons
+
+            # Tags - English and French
 
             odproduct['keywords'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:descriptiveKeywords/gmd:MD_Keywords/gmd:keyword/gco:CharacterString')
             if len(odproduct['keywords']) == 0:
@@ -212,6 +242,8 @@ class ECCommand(CkanCommand):
             if len(odproduct['keywords_fra']) == 0:
                 valid = False
                 self.reasons = '%s No French Keywords;' % self.reasons
+
+            # Spatial - Convert a bounding box into a GeoJSON polygon
 
             westLong = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:extent/gmd:EX_Extent/gmd:geographicElement/gmd:EX_GeographicBoundingBox/gmd:westBoundLongitude/gco:Decimal')
 
@@ -225,7 +257,11 @@ class ECCommand(CkanCommand):
             odproduct['spatial'] = '{\"type\": \"Polygon\", \"coordinates\": [[[%s, %s], [%s, %s], [%s, %s], [%s, %s], [%s, %s]]]}' % (
                                    westLong,northLat,eastLong,northLat,eastLong,southLat,westLong,southLat,westLong,northLat)
 
+            # Data Published
+
             odproduct['date_published'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:citation/gmd:CI_Citation/gmd:date/gmd:CI_Date/gmd:date/gco:Date')
+
+            # Browse Graphic File Name
 
             try:
                 odproduct['browse_graphic_url'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:graphicOverview/gmd:MD_BrowseGraphic/gmd:fileName/gco:CharacterString')
@@ -234,11 +270,13 @@ class ECCommand(CkanCommand):
             except:
                 odproduct['browse_graphic_url'] = '/static/img/canada_default.png'
 
+            # Frequency
+
             odproduct['maintenance_and_update_frequency'] = self._get_update_frequency(
                 self.root.xpath('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:resourceMaintenance/gmd:MD_MaintenanceInformation/gmd:maintenanceAndUpdateFrequency/gmd:MD_MaintenanceFrequencyCode/@codeListValue',
                            namespaces=self.nap_namespaces)[0])
 
-            # These fields are not present in the EC ISO 19115 NAP files.
+            # Data Series Name, Issue Identification, DOI; These fields are not present in the EC ISO 19115 NAP files.
 
             odproduct['data_series_name'] = ''
             odproduct['data_series_name_fra'] = ''
@@ -288,10 +326,12 @@ class ECCommand(CkanCommand):
         else:
             return None
 
-    '''
-    When there is only one tag with one text field, retrieve the first tag and replace right apostrophes
-    '''
+
     def _get_first_text(self, xpath_query):
+        '''
+        When there is only one tag with one text field, retrieve the first tag and replace right apostrophes
+        '''
+
         try:
             text_value = ""
             tag_list = self.root.xpath(xpath_query, namespaces=self.nap_namespaces)
@@ -307,10 +347,12 @@ class ECCommand(CkanCommand):
             print ("Error ", e, xpath_query)
             raise
 
-    '''
-    Return a list of URLs that are embedded with a long text string.
-    '''
+
     def _get_urls_from_string(self, text_with_urls):
+        '''
+        Return a list of URLs that are embedded with a long text string.
+        '''
+
         unescaped_urls = []
         if len(text_with_urls) > 0:
             urls = re.findall('http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', text_with_urls)
@@ -319,13 +361,15 @@ class ECCommand(CkanCommand):
                 unescaped_urls.append(html_parser.unescape(url))
         return unescaped_urls
 
-    '''
-    The Open Data schema uses the Government of Canada (GoC) thesaurus to enumerate valid topics and subjects.
-    The schema provides a mapping of subjects to topic categories. Geogratis records provide GoC topics.
-    This function looks up the subjects for these topics and returns two dictionaries with appropriate
-    Open Data topics and subjects for this Geogratis record.
-    '''
+
     def _get_gc_subject_category(self, geocategories):
+        '''
+        The Open Data schema uses the Government of Canada (GoC) thesaurus to enumerate valid topics and subjects.
+        The schema provides a mapping of subjects to topic categories. Geogratis records provide GoC topics.
+        This function looks up the subjects for these topics and returns two dictionaries with appropriate
+        Open Data topics and subjects for this Geogratis record.
+        '''
+
         topics = []
         subjects = []
 
@@ -355,10 +399,11 @@ class ECCommand(CkanCommand):
 
         return { 'topics' : topics, 'subjects' : subjects}
 
-    '''
-    Map the EC update frequency key to the Open Data value, or return 'unknown'
-    '''
     def _get_update_frequency(self, rawFrequency):
+        '''
+        Map the EC update frequency key to the Open Data value, or return 'unknown'
+        '''
+
         if rawFrequency == "":
             return self.ds_update_freq_map['unknown']
         if self.ds_update_freq_map[rawFrequency]:
@@ -366,10 +411,11 @@ class ECCommand(CkanCommand):
         else:
             return self.ds_update_freq_map['unknown']
 
-    '''
-    Try to determine the file type of the resource from the file name
-    '''
     def _guess_resource_type(self, title):
+        '''
+        Try to determine the file type of the resource from the file name
+        '''
+
         if title is None:
           return "none"
         if len(re.findall('csv', title, flags=re.IGNORECASE)) > 0:
