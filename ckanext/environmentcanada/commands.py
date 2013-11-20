@@ -9,13 +9,11 @@ from paste.script import command
 import json
 import logging
 import re
-import simplejson as json
 import sys
 import traceback
 
 class ECCommand(CkanCommand):
-    """
-    CKAN Environment Canada Extension
+    """CKAN Environment Canada Extension
 
     Usage:
         paster environmentcanada print_one -s <source-file> [-f <file-name>]
@@ -125,10 +123,7 @@ class ECCommand(CkanCommand):
                 return
 
     def _to_od_dataset(self, source_file):
-        '''
-        Convert a NAP file into an Open Data record
-        '''
-        
+        """Convert a NAP file into an Open Data record"""
         odproduct = {}
         valid = True
         self.reasons = ""
@@ -328,10 +323,7 @@ class ECCommand(CkanCommand):
 
 
     def _get_first_text(self, xpath_query):
-        '''
-        When there is only one tag with one text field, retrieve the first tag and replace right apostrophes
-        '''
-
+        """When there is only one tag with one text field, retrieve the first tag and replace right apostrophes"""
         try:
             text_value = ""
             tag_list = self.root.xpath(xpath_query, namespaces=self.nap_namespaces)
@@ -349,10 +341,7 @@ class ECCommand(CkanCommand):
 
 
     def _get_urls_from_string(self, text_with_urls):
-        '''
-        Return a list of URLs that are embedded with a long text string.
-        '''
-
+        """Return a list of URLs that are embedded with a long text string."""
         unescaped_urls = []
         if len(text_with_urls) > 0:
             urls = re.findall('http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', text_with_urls)
@@ -363,13 +352,14 @@ class ECCommand(CkanCommand):
 
 
     def _get_gc_subject_category(self, geocategories):
-        '''
+        """Look up the GoC thesaurus values to determine topics and subjects.
+
         The Open Data schema uses the Government of Canada (GoC) thesaurus to enumerate valid topics and subjects.
         The schema provides a mapping of subjects to topic categories. Geogratis records provide GoC topics.
         This function looks up the subjects for these topics and returns two dictionaries with appropriate
         Open Data topics and subjects for this Geogratis record.
-        '''
 
+        """
         topics = []
         subjects = []
 
@@ -400,10 +390,7 @@ class ECCommand(CkanCommand):
         return { 'topics' : topics, 'subjects' : subjects}
 
     def _get_update_frequency(self, rawFrequency):
-        '''
-        Map the EC update frequency key to the Open Data value, or return 'unknown'
-        '''
-
+        """Map the EC update frequency key to the Open Data value, or return 'unknown'"""
         if rawFrequency == "":
             return self.ds_update_freq_map['unknown']
         if self.ds_update_freq_map[rawFrequency]:
@@ -412,10 +399,7 @@ class ECCommand(CkanCommand):
             return self.ds_update_freq_map['unknown']
 
     def _guess_resource_type(self, title):
-        '''
-        Try to determine the file type of the resource from the file name
-        '''
-
+        """Try to determine the file type of the resource from the file name"""
         if title is None:
           return "none"
         if len(re.findall('csv', title, flags=re.IGNORECASE)) > 0:
