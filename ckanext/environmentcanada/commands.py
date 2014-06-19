@@ -289,8 +289,9 @@ class ECCommand(CkanCommand):
 
             # Normally, EC does not automatically publish their datasets (at this time)
             # If the dataset already exists on the public portal, then ensure the dataset remains published.
-            if self._is_published(odproduct['id']):
-                odproduct['portal_release_date'] = time.strftime("%Y-%m-%d")
+            prd = self._is_published(odproduct['id'])
+            if prd:
+                odproduct['portal_release_date'] = prd
 
             # Load the Resources
 
@@ -425,12 +426,12 @@ class ECCommand(CkanCommand):
     def _is_published(self, pkg_id):
         ckansite = ckanapi.LocalCKAN()
         package = None
-        found = False
+        found = None
         try:
             package = ckansite.action.package_show(id=pkg_id)
             if package:
                 if package.has_key('portal_release_date'):
-                    found = True
+                    found = package['portal_release_date']
         except ckanapi.NotFound, n:
             print "Cannot find {0} on local CKAN".format(pkg_id)
         except Exception, e:
