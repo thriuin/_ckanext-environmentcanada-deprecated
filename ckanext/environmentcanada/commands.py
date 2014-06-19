@@ -6,10 +6,12 @@ from lxml import etree
 from os import listdir
 from os import path
 from paste.script import command
+import ckanapi
 import json
 import logging
 import re
 import sys
+import time
 import traceback
 
 class ECCommand(CkanCommand):
@@ -94,7 +96,7 @@ class ECCommand(CkanCommand):
             for c in schema_description.dataset_field_by_id['topic_category']['choices'] if 'eng' in c)
 
         if cmd == 'print_one':
-            print  >>  self.output_file, json.dumps(self._to_od_dataset(self.options.source), indent = 2 * ' ')
+            print >> self.output_file, json.dumps(self._to_od_dataset(self.options.source), indent=2)
 
         # Import all the files from a directory with the provided file extension, and print them to the JSON output file.
         elif cmd == 'import_dir':
@@ -110,9 +112,9 @@ class ECCommand(CkanCommand):
                         json_line = self._to_od_dataset(path.join(self.options.dir, source_file))
                         if json_line != None:
                             if self.display_formatted:
-                                print  >>  self.output_file,  (json.dumps(json_line, indent = 2 * ' '))
+                                print >> self.output_file,  (json.dumps(json_line, indent=2))
                             else:
-                                print  >>  self.output_file,  (json.dumps(json_line, encoding="utf-8"))
+                                print >> self.output_file,  (json.dumps(json_line, encoding="utf-8"))
                         else:
                             print self.reasons
 
@@ -167,7 +169,13 @@ class ECCommand(CkanCommand):
 
             # Description - English and French
 
+            #notes_eng = "%s  %s" % (self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:abstract/gco:CharacterString').replace(u"\u2019", "'"),
+            #    self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:supplementalInformation/gco:CharacterString').replace(u"\u2019", "'"))
+
             odproduct['notes'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:abstract/gco:CharacterString').replace(u"\u2019", "'")
+
+            #notes_fra = "%s  %s" % (self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:abstract/gmd:PT_FreeText/gmd:textGroup/gmd:LocalisedCharacterString').replace(u"\u2019", "'"),
+            #    self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:supplementalInformation/gmd:PT_FreeText/gmd:textGroup/gmd:LocalisedCharacterString').replace(u"\u2019", "'"))
 
             odproduct['notes_fra'] = self._get_first_text('/gmd:MD_Metadata/gmd:identificationInfo/gmd:MD_DataIdentification/gmd:abstract/gmd:PT_FreeText/gmd:textGroup/gmd:LocalisedCharacterString').replace(u"\u2019", "'")
 
@@ -278,6 +286,11 @@ class ECCommand(CkanCommand):
             odproduct['data_series_issue_identification'] = ''
             odproduct['data_series_issue_identification_fra'] = ''
             odproduct['digital_object_identifier'] = ""
+
+            # Normally, EC does not automatically publish their datasets (at this time)
+            # If the dataset already exists on the public portal, then ensure the dataset remains published.
+            if self._is_published(odproduct['id']):
+                odproduct['portal_release_date'] = time.strftime("%Y-%m-%d")
 
             # Load the Resources
 
@@ -409,4 +422,18 @@ class ECCommand(CkanCommand):
         else:
             return "other"
 
+    def _is_published(self, pkg_id):
+        ckansite = ckanapi.LocalCKAN()
+        package = None
+        found = False
+        try:
+            package = ckansite.action.package_show(id=pkg_id)
+            if package:
+                if package.has_key('portal_release_date'):
+                    found = True
+        except ckanapi.NotFound, n:
+            print "Cannot find {0} on local CKAN".format(pkg_id)
+        except Exception, e:
+            print e.message
 
+        return found
